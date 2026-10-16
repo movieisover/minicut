@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MiniCut 영상 편집기</title>
+<!--
+  MiniCut — OpenCut(https://github.com/OpenCut-app/OpenCut, MIT)의 편집기 구조
+  (미디어 패널 / 프리뷰 / 속성 패널 / 멀티트랙 타임라인)를 참고해
+  빌드 없이 브라우저에서 바로 열리는 단일 HTML 파일로 단순화한 버전입니다.
+-->
+<style>
+:root{
+  --bg:#0c0d10;--panel:#15171c;--panel2:#1e2128;--line:#2a2e37;--text:#e8eaef;--mute:#8a92a3;
+  --acc:#22d3ee;--acc-ink:#03252c;--danger:#f87171;
+  --c-video:#1d4ed8;--c-text:#7e22ce;--c-audio:#047857;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:13px/1.4 system-ui,-apple-system,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer}
+button:hover{background:#262a33;border-color:#3a404d}
+button.primary{background:var(--acc);color:var(--acc-ink);border-color:transparent;font-weight:700}
+button.primary:hover{filter:brightness(1.08)}
+button.danger{color:var(--danger)}
+select{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+svg.i{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.i.f{fill:currentColor;stroke:none}
+
+#app{display:grid;grid-template-rows:48px minmax(0,1fr) clamp(190px,36vh,320px);grid-template-columns:minmax(0,1fr);height:100vh}
+#app>*{min-width:0}
+@media (max-width:1100px){main{grid-template-columns:220px minmax(0,1fr) 230px!important}.logo small{display:none}}
+header{display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.logo{font-weight:800;font-size:15px;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+.logo .mk{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--acc),#a78bfa)}
+.logo small{font-weight:500;color:var(--mute);font-size:11px}
+.spacer{flex:1}
+header label{color:var(--mute);font-size:12px;display:flex;align-items:center;gap:6px}
+
+main{display:grid;grid-template-columns:290px minmax(0,1fr) 280px;min-height:0;border-bottom:1px solid var(--line)}
+aside{background:var(--panel);min-height:0;display:flex;flex-direction:column}
+aside.left{border-right:1px solid var(--line)}
+aside.right{border-left:1px solid var(--line);overflow:auto;padding:14px}
+.tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--line)}
+.tab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;border-color:transparent;color:var(--mute)}
+.tab.on{background:var(--panel2);color:var(--acc)}
+.pane{flex:1;overflow:auto;padding:12px;display:none}
+.pane.on{display:block}
+.drop{border:1.5px dashed #3a4050;border-radius:10px;padding:18px 10px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--acc);color:var(--text);background:rgba(34,211,238,.05)}
+.drop b{color:var(--text)}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.mitem{position:relative;border-radius:8px;overflow:hidden;background:#0a0b0e;aspect-ratio:16/10;cursor:grab;border:1px solid var(--line)}
+.mitem:hover{border-color:#4a5162}
+.mitem img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.mitem .ph{width:100%;height:100%;display:grid;place-items:center;color:#6ee7b7;background:linear-gradient(135deg,#064e3b,#0b1f1a)}
+.mitem .ph svg{width:28px;height:28px}
+.mitem .nm{position:absolute;left:0;right:0;bottom:0;padding:10px 6px 3px;font-size:11px;background:linear-gradient(transparent,rgba(0,0,0,.85));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mitem .du{position:absolute;top:4px;right:4px;font-size:10px;background:rgba(0,0,0,.65);padding:1px 5px;border-radius:4px}
+.mitem .act{position:absolute;top:4px;left:4px;display:none;gap:4px}
+.mitem:hover .act{display:flex}
+.mitem .act button{width:24px;height:24px;padding:0;display:grid;place-items:center;background:rgba(0,0,0,.7);border:none}
+.mitem .act button svg{width:14px;height:14px}
+.mitem .act button.add{background:var(--acc);color:var(--acc-ink)}
+.mempty{color:var(--mute);text-align:center;margin-top:18px;font-size:12px}
+.tpresets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tpre{height:70px;border-radius:8px;display:grid;place-items:center;background:#0a0b0e;font-size:18px}
+.help{color:var(--mute);font-size:12px;line-height:1.9}
+.help kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--text);font:11px ui-monospace,Consolas,monospace}
+
+section.preview{display:flex;flex-direction:column;min-width:0;min-height:0;background:#090a0c}
+.stage{flex:1;min-height:0;display:grid;place-items:center;position:relative;overflow:hidden}
+#cv{background:#000;border-radius:3px;box-shadow:0 12px 40px rgba(0,0,0,.6);touch-action:none}
+.pctl{height:46px;display:flex;align-items:center;justify-content:center;gap:12px;border-top:1px solid var(--line);background:var(--panel)}
+.pctl .play{width:36px;height:36px;border-radius:50%;padding:0;display:grid;place-items:center;background:var(--text);color:#000;border:none}
+.tc{font-variant-numeric:tabular-nums;color:var(--mute);min-width:150px;text-align:center}
+.tc b{color:var(--text);font-weight:600}
+
+.empty{color:var(--mute);text-align:center;margin-top:40px;line-height:1.8}
+.phead{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px}
+.badge.video,.badge.image{background:var(--c-video)}.badge.text{background:var(--c-text)}.badge.audio{background:var(--c-audio)}
+.pname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{color:var(--mute);font-size:11px;margin-bottom:14px;font-variant-numeric:tabular-nums}
+.sec{margin-bottom:18px}
+.sec h4{margin:0 0 8px;font-size:11px;color:var(--mute);letter-spacing:.06em}
+.field{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;margin:5px 0;font-size:12px}
+.field output{font-size:11px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc)}
+input[type=color]{width:34px;height:24px;padding:0;border:1px solid var(--line);border-radius:5px;background:none;cursor:pointer}
+textarea{width:100%;background:#0e1014;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px;font:inherit;resize:vertical;min-height:58px;margin-bottom:6px}
+.opts{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:12px;margin:8px 0}
+.opts label{display:flex;align-items:center;gap:5px;cursor:pointer}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:4px 10px;border-radius:999px;font-size:12px}
+.chip.on{border-color:var(--acc);color:var(--acc)}
+.pbtns{display:flex;gap:6px}
+.pbtns button{flex:1}
+
+.timeline{display:flex;flex-direction:column;background:var(--panel);min-height:0}
+.ttools{height:40px;flex:none;display:flex;align-items:center;gap:2px;padding:0 10px;border-bottom:1px solid var(--line)}
+.ibtn{width:30px;height:30px;padding:0;display:grid;place-items:center;background:transparent;border-color:transparent;color:var(--text)}
+.ibtn:hover{background:var(--panel2)}
+.ibtn.on{color:var(--acc)}
+.ibtn:disabled{opacity:.35;cursor:default;background:transparent}
+.sep{width:1px;height:18px;background:var(--line);margin:0 6px}
+.zoom{display:flex;align-items:center;gap:6px;color:var(--mute)}
+.zoom input{width:110px}
+#tl{flex:1;overflow:auto;position:relative}
+#tli{position:relative;min-height:100%}
+.row{display:flex;position:relative}
+.thead{position:sticky;left:0;z-index:7;width:120px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+  display:flex;align-items:center;gap:6px;padding:0 6px 0 10px;font-size:12px;color:var(--mute)}
+.thead .tn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thead button{width:24px;height:24px;padding:0;display:grid;place-items:center;background:transparent;border:none;color:var(--mute)}
+.thead button:hover{color:var(--text)}
+.thead button svg{width:15px;height:15px}
+.ruler{height:26px;position:sticky;top:0;z-index:8;background:var(--panel);border-bottom:1px solid var(--line)}
+.ruler .thead{z-index:9}
+.rl{position:relative;height:100%;cursor:pointer}
+.tick{position:absolute;top:0;bottom:0;border-left:1px solid #3b404c;pointer-events:none}
+.tick span{position:absolute;left:4px;top:3px;font-size:10px;color:var(--mute);white-space:nowrap}
+.tick.m{top:19px}
+#phk{position:absolute;top:0;width:14px;height:18px;margin-left:-7px;background:var(--acc);cursor:ew-resize;
+  clip-path:polygon(0 0,100% 0,100% 62%,50% 100%,0 62%);z-index:2}
+.track{border-bottom:1px solid #1f2229}
+.track.media{height:66px}.track.text{height:38px}.track.audio{height:46px}
+.lane{position:relative;height:100%}
+.lane.over{background:rgba(34,211,238,.06)}
+.lane .hint{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#59606e;font-size:12px;pointer-events:none;white-space:nowrap}
+.clip{position:absolute;top:4px;bottom:4px;border-radius:6px;overflow:hidden;cursor:grab;border:1.5px solid rgba(255,255,255,.14);user-select:none}
+.clip.video,.clip.image{background-color:var(--c-video);background-size:auto 100%;background-repeat:repeat-x}
+.clip.text{background:var(--c-text)}
+.clip.audio{background:var(--c-audio) repeating-linear-gradient(90deg,transparent 0 2px,rgba(167,243,208,.35) 2px 3px);
+  -webkit-mask:none}
+.clip.audio::after{content:"";position:absolute;inset:16px 0 4px;background:repeating-linear-gradient(90deg,rgba(209,250,229,.55) 0 2px,transparent 2px 4px);
+  clip-path:polygon(0 60%,5% 30%,10% 55%,15% 20%,20% 50%,25% 35%,30% 65%,35% 15%,40% 45%,45% 30%,50% 60%,55% 25%,60% 50%,65% 20%,70% 55%,75% 35%,80% 60%,85% 25%,90% 50%,95% 30%,100% 55%,100% 100%,0 100%)}
+.clip .lb{position:absolute;left:10px;top:3px;right:10px;font-size:11px;font-weight:600;text-shadow:0 1px 3px #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:1}
+.clip.sel{border-color:#fff;box-shadow:0 0 0 1px #fff}
+.clip.dim{opacity:.45}
+.clip .hl,.clip .hr{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;z-index:2}
+.clip .hl{left:0}.clip .hr{right:0}
+.clip.sel .hl,.clip.sel .hr{background:#fff}
+.clip.sel .hl::after,.clip.sel .hr::after{content:"";position:absolute;left:3px;top:35%;bottom:35%;width:3px;border-left:1px solid #555;border-right:1px solid #555}
+#ph{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--acc);z-index:6;pointer-events:none}
+
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;place-items:center;z-index:50}
+#overlay.on{display:grid}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(380px,90vw);text-align:center}
+.modal h3{margin:0 0 6px}
+.modal p{color:var(--mute);margin:0 0 16px;font-size:12px}
+.bar{height:8px;border-radius:99px;background:var(--panel2);overflow:hidden;margin-bottom:14px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),#a78bfa)}
+#toast{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#000c;border:1px solid var(--line);padding:8px 14px;border-radius:8px;opacity:0;transition:.2s;pointer-events:none;z-index:60}
+#toast.on{opacity:1}
+#fileDrop{position:fixed;inset:0;border:3px dashed var(--acc);background:rgba(34,211,238,.08);display:none;place-items:center;font-size:20px;font-weight:700;z-index:40;pointer-events:none}
+#fileDrop.on{display:grid}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo"><div class="mk"></div>MiniCut <small>OpenCut 구조 기반 · 단일 HTML</small></div>
+    <div class="spacer"></div>
+    <label>화면 비율
+      <select id="aspect">
+        <option value="16:9">16:9 가로</option>
+        <option value="9:16">9:16 쇼츠/릴스</option>
+        <option value="1:1">1:1 정사각형</option>
+        <option value="4:5">4:5 피드</option>
+      </select>
+    </label>
+    <button class="primary" id="exportBtn"><span style="display:flex;align-items:center;gap:6px" data-icon="download">내보내기</span></button>
+  </header>
+
+  <main>
+    <aside class="left">
+      <div class="tabs">
+        <button class="tab on" data-tab="media"><span data-icon="film"></span>미디어</button>
+        <button class="tab" data-tab="text"><span data-icon="text"></span>텍스트</button>
+        <button class="tab" data-tab="help"><span data-icon="info"></span>도움말</button>
+      </div>
+      <div class="pane on" id="pane-media">
+        <div class="drop" id="dropZone">
+          <div data-icon="upload" style="display:flex;justify-content:center;margin-bottom:6px"></div>
+          <b>파일 가져오기</b><br><span style="font-size:12px">클릭하거나 동영상·이미지·오디오를 끌어다 놓으세요</span>
+        </div>
+        <input type="file" id="fileInput" multiple accept="video/*,image/*,audio/*" hidden>
+        <div class="mgrid" id="mediaList"></div>
+        <div class="mempty" id="mediaEmpty">아직 가져온 미디어가 없어요</div>
+      </div>
+      <div class="pane" id="pane-text">
+        <div class="tpresets" id="textPresets"></div>
+        <p class="help" style="margin-top:12px">클릭하면 재생 헤드 위치에 3초 길이 텍스트가 추가돼요.</p>
+      </div>
+      <div class="pane help" id="pane-help">
+        <b style="color:var(--text)">사용법</b><br>
+        1. 미디어 가져오기 → 썸네일을 타임라인으로 드래그 (또는 + 버튼)<br>
+        2. 클립 드래그로 이동, 양 끝을 끌어서 자르기(트림)<br>
+        3. 프리뷰에서 클립을 직접 드래그해 위치 이동, 휠로 크기 조절<br>
+        4. 오른쪽 패널에서 필터·조정·페이드·볼륨 편집<br>
+        5. 내보내기 → WebM 파일로 저장<br><br>
+        <b style="color:var(--text)">단축키</b><br>
+        <kbd>Space</kbd> 재생/정지<br>
+        <kbd>S</kbd> 재생 헤드에서 분할<br>
+        <kbd>Del</kbd> 선택 클립 삭제<br>
+        <kbd>Ctrl</kbd>+<kbd>D</kbd> 복제<br>
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 실행 취소/다시 실행<br>
+        <kbd>←</kbd><kbd>→</kbd> 1프레임 이동 (<kbd>Shift</kbd> 1초)<br>
+        <kbd>Home</kbd>/<kbd>End</kbd> 처음/끝으로<br>
+        <kbd>Ctrl</kbd>+휠 타임라인 확대/축소
+      </div>
+    </aside>
+
+    <section class="preview">
+      <div class="stage" id="stage"><canvas id="cv" width="1280" height="720"></canvas></div>
+      <div class="pctl">
+        <button class="ibtn" id="toStart" title="처음으로"><span data-icon="skipBack"></span></button>
+        <button class="play" id="playBtn" title="재생 (Space)"></button>
+        <div class="tc" id="tc"></div>
+      </div>
+    </section>
+
+    <aside class="right" id="props"></aside>
+  </main>
+
+  <div class="timeline">
+    <div class="ttools">
+      <button class="ibtn" id="undoBtn" title="실행 취소 (Ctrl+Z)"><span data-icon="undo"></span></button>
+      <button class="ibtn" id="redoBtn" title="다시 실행 (Ctrl+Shift+Z)"><span data-icon="redo"></span></button>
+      <div class="sep"></div>
+      <button class="ibtn" id="splitBtn" title="분할 (S)"><span data-icon="scissors"></span></button>
+      <button class="ibtn" id="dupBtn" title="복제 (Ctrl+D)"><span data-icon="copy"></span></button>
+      <button class="ibtn" id="delBtn" title="삭제 (Delete)"><span data-icon="trash"></span></button>
+      <div class="spacer"></div>
+      <button class="ibtn on" id="snapBtn" title="스냅"><span data-icon="magnet"></span></button>
+      <div class="sep"></div>
+      <div class="zoom"><span data-icon="zoomOut"></span><input type="range" id="zoom" min="8" max="300" value="60"><span data-icon="zoomIn"></span></div>
+    </div>
+    <div id="tl"><div id="tli"></div></div>
+  </div>
+</div>
+
+<div id="overlay"><div class="modal">
+  <h3>영상 내보내는 중…</h3>
+  <p>실시간으로 녹화합니다. 완료될 때까지 이 탭을 그대로 두세요.</p>
+  <div class="bar"><i id="expBar"></i></div>
+  <button id="expCancel">취소</button>
+</div></div>
+<div id="toast"></div>
+<div id="fileDrop">여기에 놓아서 가져오기</div>
+
+<script>
+'use strict';
+/* ---------- 아이콘 ---------- */
+const ICONS = {
+  play:'<path d="M7 4l13 8-13 8z"/>', pause:'<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  skipBack:'<path d="M19 20L9 12l10-8z"/><path d="M5 19V5"/>',
+  scissors:'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
+  trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/>',
+  redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/>',
+  copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/>',
+  eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><path d="M3 3l18 18"/>',
+  vol:'<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a10 10 0 010 14"/>',
+  mute:'<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>', x:'<path d="M6 6l12 12M18 6L6 18"/>',
+  download:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', upload:'<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',
+  film:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/>',
+  text:'<path d="M4 7V5h16v2M12 5v14M9 19h6"/>',
+  music:'<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  magnet:'<path d="M6 3v8a6 6 0 0012 0V3"/><path d="M6 8h4M14 8h4"/>',
+  zoomIn:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M8 11h6M11 8v6"/>', zoomOut:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M8 11h6"/>',
+};
+const FILLED = new Set(['play','pause']);
+const icon = n => `<svg class="i${FILLED.has(n)?' f':''}" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+document.querySelectorAll('[data-icon]').forEach(el => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
+
+/* ---------- 유틸 ---------- */
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2, 10);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const FPS = 30, HEAD = 120;
+function fmt(t){ t = Math.max(0, t); const m = Math.floor(t/60), s = Math.floor(t%60), f = Math.floor((t%1)*FPS);
+  return `${m}:${String(s).padStart(2,'0')}.${String(f).padStart(2,'0')}`; }
+function fmtShort(t){ const m = Math.floor(t/60), s = t%60;
+  return `${m}:${(Number.isInteger(s) ? String(s) : s.toFixed(1)).padStart(2,'0')}`; }
+function once(el, ev, ms = 8000){ return new Promise((res, rej) => {
+  const to = setTimeout(() => rej(new Error('timeout')), ms);
+  el.addEventListener(ev, () => { clearTimeout(to); res(); }, {once:true});
+  el.addEventListener('error', () => { clearTimeout(to); rej(new Error('load error')); }, {once:true});
+}); }
+let toastT;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2200); }
+
+/* ---------- 상태 (OpenCut의 media / timeline / playback 스토어를 하나로) ---------- */
+const state = {
+  media: [],            // {id,name,type:'video'|'image'|'audio',url,duration,thumb,img}
+  tracks: [],           // {id,kind:'media'|'text'|'audio',hidden,muted,clips:[]}
+  selected: null, time: 0, playing: false, pps: 60, snap: true, exporting: false,
+};
+const newTrack = kind => ({ id: 't_' + uid(), kind, hidden: false, muted: false, clips: [] });
+state.tracks = [newTrack('text'), { ...newTrack('media'), id: 'main' }, newTrack('audio')];
+
+const mediaById = id => state.media.find(m => m.id === id);
+const kindOf = c => c.type === 'text' ? 'text' : c.type === 'audio' ? 'audio' : 'media';
+const hasSource = c => c.type === 'video' || c.type === 'audio';
+function findClip(id){ for (const track of state.tracks){ const clip = track.clips.find(c => c.id === id); if (clip) return {clip, track}; } return null; }
+const allClips = () => state.tracks.flatMap(t => t.clips);
+const totalDuration = () => allClips().reduce((m, c) => Math.max(m, c.start + c.dur), 0);
+const isActive = (c, t) => t >= c.start && t < c.start + c.dur;
+
+function newClip(type, o = {}){
+  return { id: 'c_' + uid(), type, mediaId: null, start: 0, off: 0, dur: 5, ...o,
+    p: { x: 0, y: 0, scale: 1, rot: 0, opacity: 1, volume: 1, filter: 'none', bri: 1, con: 1, sat: 1, fadeIn: 0, fadeOut: 0,
+         text: '텍스트', size: 64, color: '#ffffff', bold: false, stroke: true, glow: false, bgOn: false, bg: '#000000', ...(o.p || {}) } };
+}
+
+/* ---------- 실행 취소 / 다시 실행 ---------- */
+let hist = [], hi = -1;
+function commit(){
+  state.tracks = state.tracks.filter(t => t.id === 'main' || t.clips.length);
+  state.tracks.forEach(t => t.clips.sort((a, b) => a.start - b.start));
+  hist = hist.slice(0, hi + 1); hist.push(JSON.stringify(state.tracks));
+  if (hist.length > 100) hist.shift(); hi = hist.length - 1;
+  renderTimeline(); refresh(); updateTools();
+}
+function restore(){
+  state.tracks = JSON.parse(hist[hi]);
+  if (state.selected && !findClip(state.selected)) state.selected = null;
+  renderTimeline(); renderProps(); refresh(); updateTools();
+}
+const undo = () => { if (hi > 0){ hi--; restore(); } };
+const redo = () => { if (hi < hist.length - 1){ hi++; restore(); } };
+
+/* ---------- 오디오 (재생 + 내보내기 녹음용) ---------- */
+let actx = null, recDest = null;
+function ensureCtx(){
+  if (!actx){ actx = new (window.AudioContext || window.webkitAudioContext)(); recDest = actx.createMediaStreamDestination(); }
+  return actx;
+}
+const clipEls = new Map(); // clipId -> <video>/<audio>
+function getEl(c){
+  let el = clipEls.get(c.id);
+  if (el) return el;
+  const m = mediaById(c.mediaId);
+  el = document.createElement(c.type === 'audio' ? 'audio' : 'video');
+  el.preload = 'auto'; el.playsInline = true; el.src = m.url;
+  el.addEventListener('seeked', () => { if (!state.playing) draw(); });
+  el.addEventListener('loadeddata', () => { if (!state.playing) refresh(); });
+  try {
+    ensureCtx();
+    const src = actx.createMediaElementSource(el), g = actx.createGain();
+    src.connect(g); g.connect(actx.destination); g.connect(recDest); el._gain = g;
+  } catch (e) { /* Web Audio 미지원 시 요소 볼륨 사용 */ }
+  clipEls.set(c.id, el);
+  return el;
+}
+function fadeFactor(c, t){
+  let a = 1; const lt = t - c.start, rt = c.start + c.dur - t;
+  if (c.p.fadeIn > 0) a *= clamp(lt / c.p.fadeIn, 0, 1);
+  if (c.p.fadeOut > 0) a *= clamp(rt / c.p.fadeOut, 0, 1);
+  return a;
+}
+function syncMedia(t, playing){
+  const live = new Set();
+  for (const tr of state.tracks) for (const c of tr.clips){
+    if (!hasSource(c) || !mediaById(c.mediaId)) continue;
+    live.add(c.id);
+    if (isActive(c, t)){
+      const el = getEl(c), target = c.off + (t - c.start);
+      const vol = tr.muted ? 0 : c.p.volume * fadeFactor(c, t);
+      if (el._gain) el._gain.gain.value = vol; else el.volume = clamp(vol, 0, 1);
+      if (playing){
+        if (el.paused){ el.currentTime = target; el.play().catch(() => {}); }
+        else if (Math.abs(el.currentTime - target) > 0.3) el.currentTime = target;
+      } else {
+        if (!el.paused) el.pause();
+        if (Math.abs(el.currentTime - target) > 0.02) el.currentTime = target;
+      }
+    } else {
+      const el = clipEls.get(c.id);
+      if (playing && c.start > t && c.start - t < 1.5){       // 곧 나올 클립 미리 준비
+        const pre = getEl(c); if (pre.paused && Math.abs(pre.currentTime - c.off) > 0.05) pre.currentTime = c.off;
+      } else if (el && !el.paused) el.pause();
+    }
+  }
+  for (const [id, el] of clipEls) if (!live.has(id) && !el.paused) el.pause();
+}
+
+/* ---------- 프리뷰 렌더링 ---------- */
+const cv = $('#cv'), ctx = cv.getContext('2d'), stage = $('#stage');
+const bounds = new Map();
+const FILTERS = {
+  none: ['원본', ''], bw: ['흑백', 'grayscale(1)'], vintage: ['빈티지', 'sepia(.55) contrast(1.1) saturate(.85)'],
+  vivid: ['선명', 'contrast(1.2) saturate(1.45)'], warm: ['따뜻함', 'sepia(.3) saturate(1.35) hue-rotate(-12deg)'],
+  cool: ['차가움', 'hue-rotate(18deg) saturate(1.1) brightness(1.04)'], drama: ['드라마', 'contrast(1.45) brightness(.88) saturate(.75)'],
+  bright: ['화사', 'brightness(1.2) saturate(1.15)'],
+};
+const filterOf = p => `${(FILTERS[p.filter] || FILTERS.none)[1]} brightness(${p.bri}) contrast(${p.con}) saturate(${p.sat})`.trim();
+
+function draw(t = state.time){
+  const W = cv.width, H = cv.height, total = totalDuration();
+  if (!state.playing && total > 0 && t >= total) t = total - 1e-3;   // 끝에서는 마지막 프레임 표시
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  bounds.clear();
+  if (!total){
+    ctx.fillStyle = '#3b4150'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `600 ${Math.min(W, H) / 22}px system-ui, "Malgun Gothic", sans-serif`;
+    ctx.fillText('미디어를 가져와 타임라인에 추가하세요', W / 2, H / 2);
+    return;
+  }
+  for (let i = state.tracks.length - 1; i >= 0; i--){            // 아래 트랙부터 그려서 위 트랙이 앞에 보이게
+    const tr = state.tracks[i];
+    if (tr.kind === 'audio' || tr.hidden) continue;
+    for (const c of tr.clips) if (isActive(c, t)) drawClip(c, t);
+  }
+  const b = state.selected && bounds.get(state.selected);
+  if (b && !state.exporting){
+    ctx.save(); ctx.translate(b.cx, b.cy); ctx.rotate(b.rot);
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = Math.max(2, W / 500); ctx.setLineDash([10, 6]);
+    ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h); ctx.restore();
+  }
+}
+function drawClip(c, t){
+  const W = cv.width, H = cv.height, p = c.p;
+  let src, sw, sh;
+  if (c.type === 'video'){
+    if (!mediaById(c.mediaId)) return;
+    const el = getEl(c); if (el.readyState < 2) return; src = el; sw = el.videoWidth; sh = el.videoHeight;
+  } else if (c.type === 'image'){
+    const m = mediaById(c.mediaId); if (!m || !m.img.complete || !m.img.naturalWidth) return;
+    src = m.img; sw = src.naturalWidth; sh = src.naturalHeight;
+  }
+  const cx = W / 2 + p.x * W, cy = H / 2 + p.y * H, rot = p.rot * Math.PI / 180;
+  ctx.save();
+  ctx.globalAlpha = clamp(p.opacity * fadeFactor(c, t), 0, 1);
+  ctx.translate(cx, cy); ctx.rotate(rot);
+  if (c.type === 'text'){
+    const fs = p.size * Math.min(W, H) / 720 * p.scale, lh = fs * 1.25;
+    ctx.font = `${p.bold ? 800 : 500} ${fs}px system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+    const lines = String(p.text || ' ').split('\n');
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + fs * .7, h = lines.length * lh + fs * .35;
+    if (p.bgOn){
+      ctx.save(); ctx.globalAlpha *= .72; ctx.fillStyle = p.bg; ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(-w / 2, -h / 2, w, h, fs * .22) : ctx.rect(-w / 2, -h / 2, w, h);
+      ctx.fill(); ctx.restore();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    lines.forEach((l, i) => {
+      const y = -h / 2 + fs * .175 + lh * (i + .5);
+      if (p.stroke){ ctx.lineWidth = fs * .13; ctx.strokeStyle = '#000'; ctx.strokeText(l, 0, y); }
+      if (p.glow){ ctx.shadowColor = p.color; ctx.shadowBlur = fs * .5; }
+      ctx.fillStyle = p.color; ctx.fillText(l, 0, y); ctx.shadowBlur = 0;
+    });
+    bounds.set(c.id, {cx, cy, w, h, rot});
+  } else if (src && sw && sh){
+    const k = Math.min(W / sw, H / sh) * p.scale, w = sw * k, h = sh * k;
+    ctx.filter = filterOf(p) || 'none';
+    ctx.drawImage(src, -w / 2, -h / 2, w, h);
+    bounds.set(c.id, {cx, cy, w, h, rot});
+  }
+  ctx.restore();
+}
+function refresh(){
+  if (!state.playing) syncMedia(Math.min(state.time, Math.max(0, totalDuration() - 1e-3)), false);
+  draw(); updatePlayhead(); updateTimecode();
+}
+function fitCanvas(){
+  const r = stage.getBoundingClientRect(), s = Math.min((r.width - 32) / cv.width, (r.height - 32) / cv.height);
+  cv.style.width = Math.max(10, cv.width * s) + 'px'; cv.style.height = Math.max(10, cv.height * s) + 'px';
+}
+new ResizeObserver(fitCanvas).observe(stage);
+
+/* ---------- 재생 ---------- */
+let last = 0, expRec = null, expCancelled = false;
+function play(){
+  if (state.playing) return;
+  const total = totalDuration(); if (!total) return;
+  ensureCtx().resume();
+  if (state.time >= total - 0.01) state.time = 0;
+  state.playing = true; last = performance.now(); updatePlayBtn();
+  requestAnimationFrame(tick);
+}
+function pause(){
+  state.playing = false;
+  for (const el of clipEls.values()) el.pause();
+  updatePlayBtn(); refresh();
+}
+const toggle = () => state.playing ? pause() : play();
+function tick(now){
+  if (!state.playing) return;
+  state.time += Math.min((now - last) / 1000, .25); last = now;
+  const total = totalDuration();
+  if (state.time >= total){
+    state.time = total;
+    if (state.exporting && expRec && expRec.state === 'recording'){ draw(total - 1e-3); expRec.stop(); }
+    pause(); return;
+  }
+  syncMedia(state.time, true); draw(); updatePlayhead(); updateTimecode(); followPlayhead();
+  if (state.exporting) $('#expBar').style.width = (state.time / total * 100) + '%';
+  requestAnimationFrame(tick);
+}
+function setTime(t){
+  state.time = clamp(t, 0, timelineLength());
+  if (state.playing){ syncMedia(state.time, true); draw(); updatePlayhead(); updateTimecode(); }
+  else refresh();
+}
+function updatePlayBtn(){ $('#playBtn').innerHTML = icon(state.playing ? 'pause' : 'play'); }
+function updateTimecode(){ $('#tc').innerHTML = `<b>${fmt(state.time)}</b> / ${fmt(totalDuration())}`; }
+
+/* ---------- 미디어 가져오기 ---------- */
+async function importFiles(files){
+  ensureCtx();
+  const added = [];
+  for (const file of files){
+    const type = file.type.split('/')[0];
+    if (!['video', 'image', 'audio'].includes(type)){ toast(`지원하지 않는 형식: ${file.name}`); continue; }
+    const m = { id: 'm_' + uid(), name: file.name, type, url: URL.createObjectURL(file), duration: 5, thumb: '' };
+    try {
+      if (type === 'image'){
+        m.img = new Image(); m.img.src = m.url; await once(m.img, 'load'); m.thumb = m.url;
+      } else {
+        const el = document.createElement(type); el.preload = 'auto'; el.muted = true; el.src = m.url;
+        await once(el, 'loadedmetadata');
+        if (!isFinite(el.duration)){ el.currentTime = 1e9; await once(el, 'durationchange', 3000).catch(() => {}); }
+        m.duration = isFinite(el.duration) && el.duration > 0 ? el.duration : 5;
+        if (type === 'video'){
+          el.currentTime = Math.min(1, m.duration / 3); await once(el, 'seeked').catch(() => {});
+          const c = document.createElement('canvas'), r = (el.videoWidth / el.videoHeight) || 16 / 9;
+          c.height = 90; c.width = Math.round(90 * r);
+          c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); m.thumb = c.toDataURL('image/jpeg', .7);
+        }
+        el.removeAttribute('src'); el.load();
+      }
+      state.media.push(m); added.push(m);
+    } catch (e) { toast(`불러오기 실패: ${file.name}`); }
+  }
+  renderMedia();
+  if (added.length) toast(`${added.length}개 미디어를 가져왔어요`);
+  return added;
+}
+function renderMedia(){
+  $('#mediaEmpty').style.display = state.media.length ? 'none' : '';
+  $('#mediaList').innerHTML = state.media.map(m => `
+    <div class="mitem" draggable="true" data-media="${m.id}" title="${esc(m.name)} — 타임라인으로 드래그">
+      ${m.thumb ? `<img src="${m.thumb}" alt="">` : `<div class="ph">${icon('music')}</div>`}
+      <div class="du">${m.type === 'image' ? '이미지' : fmtShort(Math.round(m.duration * 10) / 10)}</div>
+      <div class="nm">${esc(m.name)}</div>
+      <div class="act"><button class="add" data-add="${m.id}" title="타임라인에 추가">${icon('plus')}</button>
+        <button data-rm="${m.id}" title="미디어 삭제">${icon('x')}</button></div>
+    </div>`).join('');
+}
+$('#mediaList').addEventListener('click', e => {
+  const a = e.target.closest('[data-add]'), r = e.target.closest('[data-rm]');
+  if (a){ const m = mediaById(a.dataset.add); addMediaClip(m, m.type === 'audio' ? state.time : trackEnd('main'), m.type === 'audio' ? null : 'main'); }
+  if (r){
+    const id = r.dataset.rm;
+    state.tracks.forEach(t => t.clips = t.clips.filter(c => c.mediaId !== id));
+    state.media = state.media.filter(m => m.id !== id);
+    if (state.selected && !findClip(state.selected)) select(null);
+    renderMedia(); commit();
+  }
+});
+$('#mediaList').addEventListener('dblclick', e => {
+  const it = e.target.closest('[data-media]'); if (!it || e.target.closest('button')) return;
+  const m = mediaById(it.dataset.media); addMediaClip(m, state.time);
+});
+$('#mediaList').addEventListener('dragstart', e => {
+  const it = e.target.closest('[data-media]'); if (!it) return;
+  e.dataTransfer.setData('text/x-media', it.dataset.media); e.dataTransfer.effectAllowed = 'copy';
+});
+const trackEnd = id => { const t = state.tracks.find(t => t.id === id); return t ? t.clips.reduce((m, c) => Math.max(m, c.start + c.dur), 0) : 0; };
+const fits = (t, c) => t.clips.every(o => o.id === c.id || c.start >= o.start + o.dur - 1e-6 || c.start + c.dur <= o.start + 1e-6);
+function placeClip(c, preferId){
+  const kind = kindOf(c);
+  let tr = state.tracks.find(t => t.id === preferId && t.kind === kind && fits(t, c))
+        || state.tracks.find(t => t.kind === kind && fits(t, c));
+  if (!tr){
+    tr = newTrack(kind);
+    if (kind === 'text') state.tracks.unshift(tr);
+    else if (kind === 'audio') state.tracks.push(tr);
+    else state.tracks.splice(Math.max(0, state.tracks.findIndex(t => t.kind === 'media')), 0, tr);
+  }
+  tr.clips.push(c);
+}
+function addMediaClip(m, time, trackId){
+  if (!m) return;
+  const c = newClip(m.type, { mediaId: m.id, start: Math.max(0, time), dur: m.duration });
+  placeClip(c, trackId); state.selected = c.id; commit(); renderProps();
+}
+
+/* ---------- 텍스트 프리셋 ---------- */
+const TEXT_PRESETS = [
+  { name: '기본', p: { text: '텍스트를 입력하세요', size: 64, color: '#ffffff', stroke: true } },
+  { name: '제목', p: { text: '제목', size: 120, color: '#ffd400', bold: true, stroke: true, y: -.25 } },
+  { name: '자막', p: { text: '자막을 입력하세요', size: 44, color: '#ffffff', stroke: false, bgOn: true, bg: '#000000', y: .38 } },
+  { name: '네온', p: { text: 'NEON', size: 110, color: '#22d3ee', bold: true, stroke: false, glow: true } },
+  { name: '핑크 팝', p: { text: '와우!', size: 100, color: '#ff4fa3', bold: true, stroke: true, rot: -6 } },
+  { name: '라벨', p: { text: 'NEW', size: 48, color: '#111111', bold: true, stroke: false, bgOn: true, bg: '#ffffff' } },
+];
+$('#textPresets').innerHTML = TEXT_PRESETS.map((t, i) => {
+  const p = t.p, st = `color:${p.color};font-weight:${p.bold ? 800 : 500};${p.stroke ? 'text-shadow:0 0 2px #000,0 0 2px #000;' : ''}${p.glow ? `text-shadow:0 0 10px ${p.color};` : ''}${p.bgOn ? `background:${p.bg};padding:2px 8px;border-radius:4px;` : ''}`;
+  return `<button class="tpre" data-preset="${i}"><span style="${st}">${t.name}</span></button>`;
+}).join('');
+$('#textPresets').addEventListener('click', e => {
+  const b = e.target.closest('[data-preset]'); if (!b) return;
+  const c = newClip('text', { start: state.time, dur: 3, p: { ...TEXT_PRESETS[b.dataset.preset].p } });
+  placeClip(c); state.selected = c.id; commit(); renderProps();
+});
+
+/* ---------- 편집 명령 ---------- */
+function select(id){ state.selected = id; renderTimeline(); renderProps(); draw(); updateTools(); }
+function split(){
+  const t = state.time;
+  const targets = state.selected ? [findClip(state.selected)].filter(Boolean)
+                                 : state.tracks.flatMap(tr => tr.clips.filter(c => isActive(c, t)).map(clip => ({clip, track: tr})));
+  let n = 0;
+  for (const {clip, track} of targets){
+    if (t <= clip.start + .05 || t >= clip.start + clip.dur - .05) continue;
+    const right = JSON.parse(JSON.stringify(clip));
+    right.id = 'c_' + uid(); right.start = t; right.dur = clip.start + clip.dur - t;
+    if (hasSource(clip)) right.off = clip.off + (t - clip.start);
+    clip.dur = t - clip.start; track.clips.push(right); n++;
+  }
+  if (n) commit(); else toast('재생 헤드가 클립 위에 있어야 분할할 수 있어요');
+}
+function del(){
+  if (!state.selected) return;
+  const f = findClip(state.selected); if (!f) return;
+  f.track.clips.splice(f.track.clips.indexOf(f.clip), 1);
+  state.selected = null; commit(); renderProps();
+}
+function duplicate(){
+  const f = state.selected && findClip(state.selected); if (!f) return;
+  const c = JSON.parse(JSON.stringify(f.clip)); c.id = 'c_' + uid(); c.start = f.clip.start + f.clip.dur;
+  placeClip(c, f.track.id); state.selected = c.id; commit(); renderProps();
+}
+function updateTools(){
+  $('#undoBtn').disabled = hi <= 0; $('#redoBtn').disabled = hi >= hist.length - 1;
+  $('#dupBtn').disabled = $('#delBtn').disabled = !state.selected;
+}
+
+/* ---------- 타임라인 ---------- */
+const tl = $('#tl'), tli = $('#tli');
+const timelineLength = () => Math.max(totalDuration() + 20, 60);
+const timeFromX = x => (x - tli.getBoundingClientRect().left - HEAD) / state.pps;
+const TRACK_LABEL = { media: '비디오', text: '텍스트', audio: '오디오' };
+function renderTimeline(){
+  const len = timelineLength(), width = len * state.pps, pps = state.pps;
+  tli.style.width = HEAD + width + 'px';
+  const steps = [.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+  const step = steps.find(s => s * pps >= 70) || 600;
+  let ticks = '';
+  for (let s = 0; s <= len; s += step){
+    ticks += `<div class="tick" style="left:${s * pps}px"><span>${fmtShort(s)}</span></div>`;
+    for (let k = 1; k < 5; k++) ticks += `<div class="tick m" style="left:${(s + step * k / 5) * pps}px"></div>`;
+  }
+  const count = {};
+  const empty = !allClips().length;
+  let h = `<div class="row ruler"><div class="thead"></div><div class="rl" style="width:${width}px">${ticks}<div id="phk"></div></div></div>`;
+  for (const tr of state.tracks){
+    count[tr.kind] = (count[tr.kind] || 0) + 1;
+    const label = tr.id === 'main' ? '메인 비디오' : `${TRACK_LABEL[tr.kind]} ${count[tr.kind]}`;
+    const btn = tr.kind === 'audio' || tr.kind === 'media'
+      ? `<button data-act="mute" data-track="${tr.id}" title="음소거">${icon(tr.muted ? 'mute' : 'vol')}</button>` : '';
+    const eye = tr.kind !== 'audio' ? `<button data-act="hide" data-track="${tr.id}" title="숨기기">${icon(tr.hidden ? 'eyeOff' : 'eye')}</button>` : '';
+    h += `<div class="row track ${tr.kind}"><div class="thead">${icon(tr.kind === 'media' ? 'film' : tr.kind === 'text' ? 'text' : 'music')}<span class="tn">${label}</span>${eye}${btn}</div>
+      <div class="lane" data-track="${tr.id}" style="width:${width}px">${tr.clips.map(c => clipHTML(c, tr)).join('')}
+      ${empty && tr.id === 'main' ? '<div class="hint">미디어를 여기로 끌어다 놓으세요</div>' : ''}</div></div>`;
+  }
+  tli.innerHTML = h + '<div id="ph"></div>';
+  updatePlayhead();
+}
+function clipHTML(c, tr){
+  const m = mediaById(c.mediaId);
+  const label = c.type === 'text' ? c.p.text.split('\n')[0] : (m ? m.name : '(삭제된 미디어)');
+  const bg = m && m.thumb && c.type !== 'audio' ? `background-image:url('${m.thumb}');` : '';
+  return `<div class="clip ${c.type}${c.id === state.selected ? ' sel' : ''}${tr.hidden ? ' dim' : ''}" data-id="${c.id}"
+    style="left:${c.start * state.pps}px;width:${Math.max(4, c.dur * state.pps)}px;${bg}">
+    <div class="hl"></div><div class="lb">${esc(label)}</div><div class="hr"></div></div>`;
+}
+function updatePlayhead(){
+  const x = state.time * state.pps;
+  const ph = document.getElementById('ph'), k = document.getElementById('phk');
+  if (ph) ph.style.left = HEAD + x + 'px';
+  if (k) k.style.left = x + 'px';
+}
+function followPlayhead(){
+  const x = HEAD + state.time * state.pps;
+  if (x > tl.scrollLeft + tl.clientWidth - 40) tl.scrollLeft = x - HEAD - 40;
+  else if (x < tl.scrollLeft + HEAD) tl.scrollLeft = Math.max(0, x - HEAD - 40);
+}
+function dragLoop(onMove, onUp){
+  const mv = e => onMove(e), up = e => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); onUp && onUp(e); };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up);
+}
+function snapPoints(exceptId){
+  const pts = [0, state.time];
+  for (const c of allClips()) if (c.id !== exceptId) pts.push(c.start, c.start + c.dur);
+  return pts;
+}
+function snapTo(t, pts){
+  if (!state.snap) return { t, d: Infinity };
+  const thr = 8 / state.pps; let best = { t, d: Infinity };
+  for (const p of pts){ const d = Math.abs(p - t); if (d < thr && d < best.d) best = { t: p, d }; }
+  return best;
+}
+function startScrub(e){
+  setTime(timeFromX(e.clientX));
+  dragLoop(ev => setTime(timeFromX(ev.clientX)));
+}
+function startClipDrag(e, el){
+  const id = el.dataset.id; if (state.selected !== id) select(id);
+  const { clip } = findClip(id);
+  const mode = e.target.classList.contains('hl') ? 'l' : e.target.classList.contains('hr') ? 'r' : 'm';
+  const x0 = e.clientX, o = { start: clip.start, off: clip.off, dur: clip.dur };
+  const srcMax = hasSource(clip) ? mediaById(clip.mediaId).duration : Infinity;
+  const pts = snapPoints(id);
+  let moved = false;
+  dragLoop(ev => {
+    if (!moved && Math.abs(ev.clientX - x0) < 3 && mode !== 'm') return;
+    if (!moved && Math.abs(ev.clientX - x0) < 3 && Math.abs(ev.clientY - e.clientY) < 3) return;
+    moved = true;
+    const dx = (ev.clientX - x0) / state.pps;
+    if (mode === 'm'){
+      let s = Math.max(0, o.start + dx);
+      const a = snapTo(s, pts), b = snapTo(s + o.dur, pts);
+      if (a.d <= b.d && a.d < Infinity) s = a.t; else if (b.d < Infinity) s = b.t - o.dur;
+      clip.start = Math.max(0, s);
+      const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane');
+      const dest = lane && state.tracks.find(t => t.id === lane.dataset.track);
+      const cur = findClip(id).track;
+      if (dest && dest !== cur && dest.kind === kindOf(clip)){ cur.clips.splice(cur.clips.indexOf(clip), 1); dest.clips.push(clip); }
+    } else if (mode === 'l'){
+      let ns = snapTo(o.start + dx, pts).t, d = ns - o.start;
+      d = Math.max(d, -o.start); if (hasSource(clip)) d = Math.max(d, -o.off); d = Math.min(d, o.dur - .1);
+      clip.start = o.start + d; clip.dur = o.dur - d; if (hasSource(clip)) clip.off = o.off + d;
+    } else {
+      let end = snapTo(o.start + o.dur + dx, pts).t;
+      clip.dur = Math.min(Math.max(.1, end - o.start), srcMax - o.off);
+    }
+    renderTimeline(); refresh();
+  }, () => { if (moved){ commit(); renderProps(); } });
+}
+tli.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  if (e.target.closest('.thead')) return;
+  const clipEl = e.target.closest('.clip');
+  if (clipEl){ startClipDrag(e, clipEl); return; }
+  if (e.target.closest('.lane') && state.selected) select(null);
+  startScrub(e);
+});
+tli.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const tr = state.tracks.find(t => t.id === b.dataset.track);
+  if (b.dataset.act === 'hide') tr.hidden = !tr.hidden; else tr.muted = !tr.muted;
+  commit();
+});
+tli.addEventListener('dragover', e => {
+  e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+  tli.querySelectorAll('.lane.over').forEach(l => l.classList.remove('over'));
+  e.target.closest('.lane')?.classList.add('over');
+});
+tli.addEventListener('dragleave', e => { if (!tli.contains(e.relatedTarget)) tli.querySelectorAll('.lane.over').forEach(l => l.classList.remove('over')); });
+tli.addEventListener('drop', async e => {
+  e.preventDefault(); e.stopPropagation(); hideFileDrop();
+  const lane = e.target.closest('.lane'), t = Math.max(0, timeFromX(e.clientX));
+  const id = e.dataTransfer.getData('text/x-media');
+  if (id) return addMediaClip(mediaById(id), t, lane?.dataset.track);
+  if (e.dataTransfer.files.length){
+    let at = t;
+    for (const m of await importFiles([...e.dataTransfer.files])){ addMediaClip(m, at, lane?.dataset.track); if (m.type !== 'audio') at += m.duration; }
+  }
+});
+tl.addEventListener('wheel', e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault(); setZoom(state.pps * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+}, { passive: false });
+function setZoom(v){ state.pps = clamp(v, 8, 300); $('#zoom').value = state.pps; renderTimeline(); }
+$('#zoom').addEventListener('input', e => setZoom(+e.target.value));
+
+/* ---------- 프리뷰에서 직접 이동 / 크기 ---------- */
+function canvasPt(e){ const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; }
+function hitTest(pt){
+  for (const tr of state.tracks){
+    if (tr.kind === 'audio' || tr.hidden) continue;
+    for (let i = tr.clips.length - 1; i >= 0; i--){
+      const b = bounds.get(tr.clips[i].id); if (!b) continue;
+      const dx = pt.x - b.cx, dy = pt.y - b.cy, cs = Math.cos(-b.rot), sn = Math.sin(-b.rot);
+      const lx = dx * cs - dy * sn, ly = dx * sn + dy * cs;
+      if (Math.abs(lx) <= b.w / 2 && Math.abs(ly) <= b.h / 2) return tr.clips[i].id;
+    }
+  }
+  return null;
+}
+cv.addEventListener('pointerdown', e => {
+  const id = hitTest(canvasPt(e));
+  if (!id){ if (state.selected) select(null); return; }
+  if (state.selected !== id) select(id);
+  const c = findClip(id).clip, o = { x: c.p.x, y: c.p.y }, p0 = canvasPt(e); let moved = false;
+  dragLoop(ev => {
+    const q = canvasPt(ev);
+    c.p.x = o.x + (q.x - p0.x) / cv.width; c.p.y = o.y + (q.y - p0.y) / cv.height;
+    if (Math.abs(c.p.x) < .012) c.p.x = 0; if (Math.abs(c.p.y) < .012) c.p.y = 0;   // 중앙 스냅
+    moved = true; draw(); syncPropInputs();
+  }, () => { if (moved) commit(); });
+});
+let wheelT;
+cv.addEventListener('wheel', e => {
+  const f = state.selected && findClip(state.selected); if (!f || f.clip.type === 'audio') return;
+  e.preventDefault();
+  f.clip.p.scale = clamp(f.clip.p.scale * (e.deltaY < 0 ? 1.05 : 1 / 1.05), .1, 3);
+  draw(); syncPropInputs(); clearTimeout(wheelT); wheelT = setTimeout(commit, 300);
+}, { passive: false });
+
+/* ---------- 속성 패널 ---------- */
+const props = $('#props');
+const pct = v => Math.round(v * 100) + '%', secs = v => (+v).toFixed(1) + 's', deg = v => Math.round(v) + '°', num = v => Math.round(v);
+const F = {
+  scale: ['크기', .1, 3, .01, pct], x: ['위치 X', -1, 1, .005, pct], y: ['위치 Y', -1, 1, .005, pct], rot: ['회전', -180, 180, 1, deg],
+  opacity: ['불투명도', 0, 1, .01, pct], bri: ['밝기', 0, 2, .01, pct], con: ['대비', 0, 2, .01, pct], sat: ['채도', 0, 2, .01, pct],
+  volume: ['볼륨', 0, 2, .01, pct], fadeIn: ['페이드 인', 0, 3, .1, secs], fadeOut: ['페이드 아웃', 0, 3, .1, secs], size: ['글자 크기', 12, 220, 1, num],
+};
+const range = (c, k) => { const [l, mn, mx, st, f] = F[k];
+  return `<label class="field"><span>${l}</span><input type="range" data-k="${k}" min="${mn}" max="${mx}" step="${st}" value="${c.p[k]}"><output data-o="${k}">${f(c.p[k])}</output></label>`; };
+const section = (title, body) => `<div class="sec"><h4>${title}</h4>${body}</div>`;
+const check = (c, k, l) => `<label><input type="checkbox" data-k="${k}" ${c.p[k] ? 'checked' : ''}>${l}</label>`;
+const TYPE_LABEL = { video: '비디오', image: '이미지', text: '텍스트', audio: '오디오' };
+function renderProps(){
+  const f = state.selected && findClip(state.selected);
+  if (!f){ props.innerHTML = `<div class="empty">${icon('info')}<br>타임라인이나 프리뷰에서<br>클립을 선택하면<br>속성을 편집할 수 있어요</div>`; return; }
+  const c = f.clip, m = mediaById(c.mediaId);
+  let h = `<div class="phead"><span class="badge ${c.type}">${TYPE_LABEL[c.type]}</span><span class="pname">${esc(c.type === 'text' ? '텍스트 클립' : m ? m.name : '')}</span></div>
+    <div class="meta">시작 ${fmt(c.start)} · 길이 ${fmt(c.dur)}</div>`;
+  if (c.type === 'text') h += section('텍스트',
+    `<textarea data-k="text" rows="2">${esc(c.p.text)}</textarea>${range(c, 'size')}
+     <div class="opts"><label>글자색 <input type="color" data-k="color" value="${c.p.color}"></label>${check(c, 'bold', '굵게')}${check(c, 'stroke', '외곽선')}${check(c, 'glow', '네온')}</div>
+     <div class="opts">${check(c, 'bgOn', '배경 상자')}<input type="color" data-k="bg" value="${c.p.bg}"></div>`);
+  if (c.type !== 'audio') h += section('변형', ['scale', 'x', 'y', 'rot', 'opacity'].map(k => range(c, k)).join(''));
+  if (c.type === 'video' || c.type === 'image'){
+    h += section('필터', `<div class="chips">${Object.entries(FILTERS).map(([k, [l]]) => `<button class="chip${c.p.filter === k ? ' on' : ''}" data-filter="${k}">${l}</button>`).join('')}</div>`);
+    h += section('조정', ['bri', 'con', 'sat'].map(k => range(c, k)).join(''));
+  }
+  if (hasSource(c)) h += section('오디오', range(c, 'volume'));
+  h += section('애니메이션', range(c, 'fadeIn') + range(c, 'fadeOut'));
+  h += `<div class="pbtns"><button data-cmd="split">${'분할'}</button><button data-cmd="dup">복제</button><button data-cmd="del" class="danger">삭제</button></div>`;
+  props.innerHTML = h;
+}
+function syncPropInputs(){
+  const f = state.selected && findClip(state.selected); if (!f) return;
+  props.querySelectorAll('input[type=range][data-k]').forEach(inp => {
+    const k = inp.dataset.k; inp.value = f.clip.p[k];
+    const o = props.querySelector(`[data-o="${k}"]`); if (o) o.textContent = F[k][4](f.clip.p[k]);
+  });
+}
+props.addEventListener('input', e => {
+  const k = e.target.dataset.k, f = k && state.selected && findClip(state.selected); if (!f) return;
+  const t = e.target;
+  f.clip.p[k] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? parseFloat(t.value) : t.value;
+  const o = props.querySelector(`[data-o="${k}"]`); if (o) o.textContent = F[k][4](f.clip.p[k]);
+  if (k === 'text') renderTimeline();
+  refresh();
+});
+props.addEventListener('change', e => { if (e.target.dataset.k) commit(); });
+props.addEventListener('click', e => {
+  const fb = e.target.closest('[data-filter]'), cmd = e.target.closest('[data-cmd]');
+  if (fb){ findClip(state.selected).clip.p.filter = fb.dataset.filter; commit(); renderProps(); }
+  if (cmd) ({ split, dup: duplicate, del })[cmd.dataset.cmd]();
+});
+
+/* ---------- 내보내기 (canvas.captureStream + MediaRecorder) ---------- */
+async function exportVideo(){
+  const total = totalDuration();
+  if (!total) return toast('타임라인이 비어 있어요');
+  if (!window.MediaRecorder || !cv.captureStream) return toast('이 브라우저는 내보내기를 지원하지 않아요 (Chrome 권장)');
+  pause(); ensureCtx(); await actx.resume();
+  state.exporting = true; expCancelled = false; $('#expBar').style.width = '0%'; $('#overlay').classList.add('on');
+  setTime(0);
+  const t0 = performance.now();                    // 첫 프레임에 필요한 영상이 준비될 때까지 대기
+  while (performance.now() - t0 < 3000 && allClips().some(c => c.type === 'video' && isActive(c, 0) && getEl(c).readyState < 3)) await sleep(100);
+  draw(0);
+  const stream = cv.captureStream(FPS);
+  recDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : {});
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    state.exporting = false; expRec = null; $('#overlay').classList.remove('on'); draw();
+    stream.getVideoTracks().forEach(t => t.stop());
+    if (expCancelled) return toast('내보내기를 취소했어요');
+    const type = rec.mimeType || 'video/webm', blob = new Blob(chunks, { type });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `minicut-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast('내보내기 완료! 파일이 저장됐어요');
+  };
+  expRec = rec; rec.start(250); play();
+}
+$('#exportBtn').onclick = exportVideo;
+$('#expCancel').onclick = () => { expCancelled = true; if (expRec && expRec.state === 'recording') expRec.stop(); pause(); };
+
+/* ---------- UI 연결 ---------- */
+document.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); }); // 버튼이 포커스를 가져가 Space가 클릭되지 않게
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + b.dataset.tab));
+});
+$('#dropZone').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
+$('#playBtn').onclick = toggle;
+$('#toStart').onclick = () => setTime(0);
+$('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
+$('#splitBtn').onclick = split; $('#dupBtn').onclick = duplicate; $('#delBtn').onclick = del;
+$('#snapBtn').onclick = e => { state.snap = !state.snap; e.currentTarget.classList.toggle('on', state.snap); };
+const ASPECTS = { '16:9': [1280, 720], '9:16': [720, 1280], '1:1': [1080, 1080], '4:5': [1080, 1350] };
+$('#aspect').onchange = e => { [cv.width, cv.height] = ASPECTS[e.target.value]; fitCanvas(); refresh(); };
+
+let dragDepth = 0;
+const hideFileDrop = () => { dragDepth = 0; $('#fileDrop').classList.remove('on'); };
+addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')){ dragDepth++; $('#fileDrop').classList.add('on'); } });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) hideFileDrop(); });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); hideFileDrop(); if (e.dataTransfer.files.length) importFiles([...e.dataTransfer.files]); });
+
+addEventListener('keydown', e => {
+  if (state.exporting || e.target.matches('input,textarea,select')) return;
+  const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.code === 'Space'){ e.preventDefault(); toggle(); }
+  else if (mod && k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && k === 'y'){ e.preventDefault(); redo(); }
+  else if (mod && k === 'd'){ e.preventDefault(); duplicate(); }
+  else if (!mod && k === 's') split();
+  else if (e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); del(); }
+  else if (e.key === 'ArrowLeft'){ e.preventDefault(); setTime(state.time - (e.shiftKey ? 1 : 1 / FPS)); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); setTime(state.time + (e.shiftKey ? 1 : 1 / FPS)); }
+  else if (e.key === 'Home') setTime(0);
+  else if (e.key === 'End') setTime(totalDuration());
+  else if (e.key === 'Escape') select(null);
+});
+
+/* ---------- 시작 ---------- */
+renderMedia(); updatePlayBtn(); renderProps(); commit(); fitCanvas();
+</script>
+</body>
+</html>
